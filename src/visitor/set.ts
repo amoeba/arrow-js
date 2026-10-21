@@ -20,6 +20,7 @@ import { Field } from '../schema.js';
 import { Vector } from '../vector.js';
 import { Visitor } from '../visitor.js';
 import { bigIntToNumber } from '../util/bigint.js';
+import { bigIntToWords, decimalToUnscaledBigInt } from '../util/bn.js';
 import { encodeUtf8 } from '../util/utf8.js';
 import { TypeToDataType } from '../interfaces.js';
 import { float64ToUint16 } from '../util/math.js';
@@ -262,7 +263,14 @@ export const setTime = <T extends Time>(data: Data<T>, index: number, value: T['
 };
 
 /** @ignore */
-export const setDecimal = <T extends Decimal>({ values, stride }: Data<T>, index: number, value: T['TValue']): void => { values.set(value.subarray(0, stride), stride * index); };
+export const setDecimal = <T extends Decimal>({ type, values, stride }: Data<T>, index: number, value: T['TValue']): void => {
+    if (ArrayBuffer.isView(value)) {
+        values.set(value.subarray(0, stride), stride * index);
+    } else {
+        const unscaled = decimalToUnscaledBigInt(value as number | bigint | string, type.scale, type.precision);
+        bigIntToWords(unscaled, values.subarray(stride * index, stride * (index + 1)));
+    }
+};
 
 /** @ignore */
 const setList = <T extends List | LargeList>(data: Data<T>, index: number, value: T['TValue']): void => {

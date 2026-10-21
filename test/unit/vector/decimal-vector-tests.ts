@@ -173,4 +173,64 @@ describe(`DecimalVector`, () => {
             }
         }
     });
+
+    describe(`building from JS values`, () => {
+        const strings = (values: any[], type: Decimal) => [...vectorFromArray(values, type)].map(String);
+
+        test(`integer numbers mean the number (#77)`, () => {
+            expect(strings([1, 12, 34], new Decimal(3, 18))).toEqual(['1.000', '12.000', '34.000']);
+            expect(strings([-5, 0], new Decimal(2, 5))).toEqual(['-5.00', '0.00']);
+        });
+
+        test(`bigints mean the number`, () => {
+            expect(strings([BigInt(1500), BigInt(-2)], new Decimal(3, 18))).toEqual(['1500.000', '-2.000']);
+        });
+
+        test(`decimal strings`, () => {
+            expect(strings(['1.5', '-0.05', '+2', '.5', '7.', '1.5000', '-0'], new Decimal(3, 18)))
+                .toEqual(['1.500', '-0.050', '2.000', '0.500', '7.000', '1.500', '0.000']);
+        });
+
+        test(`all bit widths`, () => {
+            expect(strings(['-9999999.99'], new Decimal(2, 9, 32))).toEqual(['-9999999.99']);
+            expect(strings(['9999999999999999.99'], new Decimal(2, 18, 64))).toEqual(['9999999999999999.99']);
+            const max256 = `${'9'.repeat(70)}.${'9'.repeat(6)}`;
+            expect(strings([`-${max256}`], new Decimal(6, 76, 256))).toEqual([`-${max256}`]);
+        });
+
+        test(`negative scales`, () => {
+            expect(strings([12300, '-500'], new Decimal(-2, 5))).toEqual(['12300', '-500']);
+            expect(() => vectorFromArray([12345], new Decimal(-2, 5))).toThrow(RangeError);
+        });
+
+        test(`raw words, nulls, and Vector.set still work`, () => {
+            const vector = vectorFromArray([toWords([BigInt(1999)], 128), null, '1'], new Decimal(2, 5));
+            expect([...vector].map((x) => x === null ? x : String(x))).toEqual(['19.99', null, '1.00']);
+            vector.set(2, '2.5');
+            expect(`${vector.get(2)}`).toBe('2.50');
+        });
+
+        test(`non-integer numbers are rejected, like PyArrow floats`, () => {
+            for (const value of [0.1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+                expect(() => vectorFromArray([value], new Decimal(3, 18))).toThrow(new TypeError(`Cannot convert ${value} to Decimal: expected an integer, bigint, or decimal string`));
+            }
+        });
+
+        test(`strings that are not plain decimal numbers are rejected`, () => {
+            for (const value of ['abc', '1e3', '', '.', '1.2.3', ' 1', '0x10', '1,5']) {
+                expect(() => vectorFromArray([value], new Decimal(3, 18))).toThrow(new TypeError(`Cannot convert ${value} to Decimal: expected an integer, bigint, or decimal string`));
+            }
+        });
+
+        test(`values that would lose digits are rejected`, () => {
+            expect(() => vectorFromArray(['1.2345'], new Decimal(3, 18))).toThrow(RangeError);
+            expect(strings(['1.2340'], new Decimal(3, 18))).toEqual(['1.234']);
+        });
+
+        test(`values that exceed the precision are rejected`, () => {
+            expect(strings([999, '-999'], new Decimal(0, 3))).toEqual(['999', '-999']);
+            expect(() => vectorFromArray([1000], new Decimal(0, 3))).toThrow(RangeError);
+            expect(() => vectorFromArray(['10.00'], new Decimal(2, 3))).toThrow(RangeError);
+        });
+    });
 });

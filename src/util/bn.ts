@@ -141,6 +141,70 @@ export function bigNumToBigInt<T extends BN<BigNumArray>>(a: T): bigint {
 }
 
 /** @ignore */
+const decimalString = /^([+-]?)(\d*)(?:\.(\d*))?$/;
+
+/** @ignore */
+const powerOfTen = (exponent: number) => BigInt(`1${'0'.repeat(exponent)}`);
+
+/**
+ * @ignore
+ * Convert an integer number, bigint, or decimal string (e.g., "-19.99") to the
+ * unscaled integer a decimal with the given scale stores. e.g., 1 with scale 3
+ * stores 1000 but still has the value 1. Throws for non-integer numbers and for
+ * values that would lose digits or exceed the precision (matching PyArrow).
+ */
+export function decimalToUnscaledBigInt(value: number | bigint | string, scale: number, precision: number): bigint {
+    let digits: bigint;
+    let fractionDigits = 0;
+    if (typeof value === 'bigint') {
+        digits = value;
+    } else if (typeof value === 'number' && Number.isInteger(value)) {
+        digits = BigInt(value);
+    } else {
+        const match = typeof value === 'string' ? decimalString.exec(value) : null;
+        if (!match || !(match[2] || match[3])) {
+            throw new TypeError(`Cannot convert ${value} to Decimal: expected an integer, bigint, or decimal string`);
+        }
+        const [, sign, integer, fraction = ''] = match;
+        digits = BigInt(`${sign}${integer || '0'}${fraction}`);
+        fractionDigits = fraction.length;
+    }
+    // The value is digits * 10^-fractionDigits, so the unscaled integer is digits * 10^(scale - fractionDigits)
+    let unscaled = digits;
+    const shift = scale - fractionDigits;
+    if (shift > 0) {
+        unscaled *= powerOfTen(shift);
+    } else if (shift < 0) {
+        const divisor = powerOfTen(-shift);
+        if (digits % divisor !== BigInt(0)) {
+            throw new RangeError(`Cannot convert ${value} to Decimal with scale ${scale} without losing digits`);
+        }
+        unscaled /= divisor;
+    }
+    const limit = powerOfTen(precision);
+    if (unscaled >= limit || unscaled <= -limit) {
+        throw new RangeError(`Cannot convert ${value} to Decimal with precision ${precision} and scale ${scale}`);
+    }
+    return unscaled;
+}
+
+/**
+ * @ignore
+ * Write a bigint into `words` as a little-endian two's complement integer.
+ */
+export function bigIntToWords(value: bigint, words: Uint32Array) {
+    const bitWidth = words.length * 32;
+    if (BigInt.asIntN(bitWidth, value) !== value) {
+        throw new RangeError(`${value} does not fit in ${bitWidth} bits`);
+    }
+    let x = BigInt.asUintN(bitWidth, value);
+    for (let i = 0; i < words.length; i++) {
+        words[i] = Number(x & BigInt(0xFFFFFFFF));
+        x >>= BigInt(32);
+    }
+}
+
+/** @ignore */
 export class BN<T extends BigNumArray> {
     /** @nocollapse */
     public static new<T extends BigNumArray>(num: T, isSigned?: boolean): (T & BN<T>) {
