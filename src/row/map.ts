@@ -43,7 +43,7 @@ export class MapRow<K extends DataType = any, V extends DataType = any> {
 
     /** @ignore */
     get [kKeysAsStrings]() {
-        return this[_kKeysAsStrings] || (this[_kKeysAsStrings] = Array.from(this[kKeys].toArray(), String));
+        return this[_kKeysAsStrings] || (this[_kKeysAsStrings] = Array.from(this[kKeys], String));
     }
 
     [Symbol.iterator]() {

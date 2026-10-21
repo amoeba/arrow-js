@@ -234,4 +234,26 @@ describe(`DecimalVector`, () => {
             expect(() => vectorFromArray(['10.00'], new Decimal(2, 3))).toThrow(RangeError);
         });
     });
+
+    describe(`writes`, () => {
+        test(`set() rejects negative indices`, () => {
+            const vector = makeVector({ type: new Decimal(0, 9, 32), data: new Uint32Array([1, 2]) });
+            expect(() => vector.set(-2, 3 as any)).toThrow(RangeError);
+            expect([...vector].map(String)).toEqual(['1', '2']);
+        });
+    });
+
+    test(`MapRow property lookup uses decimal keys`, () => {
+        for (const bitWidth of [32, 128]) {
+            const type = new Map_(new Field('entries', new Struct([
+                new Field('key', new Decimal(2, 5, bitWidth), false),
+                new Field('value', new Utf8()),
+            ])));
+            const builder = makeBuilder({ type });
+            builder.append(new Map([['19.99', 'sale']]) as any);
+            const row = builder.finish().toVector().get(0) as any;
+            expect(Object.keys(row)).toEqual(['19.99']);
+            expect(row['19.99']).toBe('sale');
+        }
+    });
 });

@@ -263,13 +263,19 @@ export const setTime = <T extends Time>(data: Data<T>, index: number, value: T['
 };
 
 /** @ignore */
-export const setDecimal = <T extends Decimal>({ type, values, stride }: Data<T>, index: number, value: T['TValue']): void => {
+const toDecimalWords = ({ scale, precision, bitWidth }: Decimal, value: any): Uint32Array => {
     if (ArrayBuffer.isView(value)) {
-        values.set(value.subarray(0, stride), stride * index);
-    } else {
-        const unscaled = decimalToUnscaledBigInt(value as number | bigint | string, type.scale, type.precision);
-        bigIntToWords(unscaled, values.subarray(stride * index, stride * (index + 1)));
+        return value as Uint32Array;
     }
+    // Numbers, bigints, and decimal strings mean the decimal value, so apply the scale
+    const words = new Uint32Array(bitWidth / 32);
+    bigIntToWords(decimalToUnscaledBigInt(value, scale, precision), words);
+    return words;
+};
+
+/** @ignore */
+export const setDecimal = <T extends Decimal>({ type, values, stride }: Data<T>, index: number, value: T['TValue']): void => {
+    values.set(toDecimalWords(type, value).subarray(0, stride), stride * index);
 };
 
 /** @ignore */
