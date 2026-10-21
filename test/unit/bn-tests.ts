@@ -166,6 +166,14 @@ describe(`BN`, () => {
         expect(() => decimal256(BigInt(2) ** BigInt(130)).valueOf()).toThrow('1361129467683753853853498429727072845824');
     });
 
+    test(`valueOf with a negative scale`, () => {
+        expect(decimal(BigInt(123)).valueOf(-2)).toBe(12300);
+        expect(decimal(BigInt(-123)).valueOf(-2)).toBe(-12300);
+        expect(decimal(BigInt(0)).valueOf(-2)).toBe(0);
+        expect(decimal(BigInt(123), 128, -2).valueOf()).toBe(12300);
+        expect(() => decimal(BigInt(2) ** BigInt(60)).valueOf(-2)).toThrow('115292150460684697600');
+    });
+
     test(`negative 64-bit decimals`, () => {
         const d = decimal(BigInt(-1), 64);
         expect(d.toString()).toBe('-1');

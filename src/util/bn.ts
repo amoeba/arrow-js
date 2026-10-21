@@ -101,6 +101,10 @@ export function bigNumToNumber<T extends BN<BigNumArray>>(bn: T, scale?: number)
         const sign = negative && integerPart === 0 ? '-' : '';
         return +`${sign}${integerPart}.${fractionPart}`;
     }
+    // A negative scale multiplies the unscaled value by 10^-scale
+    if (typeof scale === 'number' && scale < 0) {
+        return bigIntToNumber(number * powerOfTen(-scale));
+    }
     return bigIntToNumber(number);
 }
 

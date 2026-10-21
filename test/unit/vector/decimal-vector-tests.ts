@@ -200,6 +200,7 @@ describe(`DecimalVector`, () => {
 
         test(`negative scales`, () => {
             expect(strings([12300, '-500'], new Decimal(-2, 5))).toEqual(['12300', '-500']);
+            expect([...vectorFromArray([12300, '-500'], new Decimal(-2, 5))].map(Number)).toEqual([12300, -500]);
             expect(() => vectorFromArray([12345], new Decimal(-2, 5))).toThrow(RangeError);
         });
 
