@@ -22,4 +22,10 @@ describe(`Decimal`, () => {
         const decimal = new Decimal(2, 9);
         expect(decimal.bitWidth).toBe(128);
     });
+
+    test(`toString includes bit width, scale, and precision in constructor order`, () => {
+        expect(`${new Decimal(2, 5)}`).toBe('Decimal128[2, 5]');
+        expect(`${new Decimal(0, 9, 32)}`).toBe('Decimal32[0, 9]');
+        expect(`${new Decimal(-3, 38, 256)}`).toBe('Decimal256[-3, 38]');
+    });
 });

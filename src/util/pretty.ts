@@ -15,12 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import { Type } from '../enum.js';
+import type { DataType, Decimal } from '../type.js';
+
 /** @ignore */ const undf = void (0);
 
-/** @ignore */
-export function valueToString(x: any): string {
+/**
+ * @ignore
+ * @param x The value to format.
+ * @param type The value's type, if known. Decimals are formatted using the type's scale.
+ */
+export function valueToString(x: any, type?: DataType): string {
     if (x === null) { return 'null'; }
     if (x === undf) { return 'undefined'; }
+    if (type?.typeId === Type.Decimal) { return x.toString((type as Decimal).scale); }
     switch (typeof x) {
         case 'number': return `${x}`;
         case 'bigint': return `${x}`;

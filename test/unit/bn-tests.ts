@@ -16,7 +16,18 @@
 // under the License.
 
 import * as Arrow from 'apache-arrow';
-const { BN, bigNumToNumber } = Arrow.util;
+const { BN, bigNumToNumber, bigNumToBigInt } = Arrow.util;
+
+/** Little-endian two's complement words for `value` in a `bitWidth`-bit integer. */
+const toWords = (value: bigint, bitWidth: number) => {
+    const words = new Uint32Array(bitWidth / 32);
+    let x = BigInt.asUintN(bitWidth, value);
+    for (let i = 0; i < words.length; i++) {
+        words[i] = Number(x & BigInt(0xFFFFFFFF));
+        x >>= BigInt(32);
+    }
+    return words;
+};
 
 describe(`BN`, () => {
     test(`to detect signed numbers, unsigned numbers and decimals`, () => {
@@ -108,5 +119,85 @@ describe(`BN`, () => {
         expect(bigNumToNumber(n1, 20)).toBeCloseTo(0.18446744082299486);
         expect(bigNumToNumber(n1, 25)).toBeCloseTo(0.0000018446744082299486);
         /* eslint-enable no-loss-of-precision */
+    });
+
+    test(`toString for 256-bit decimals`, () => {
+        const values = [
+            BigInt(0),
+            BigInt(1234),
+            BigInt(-1234),
+            BigInt('12345678901234567890'),
+            BigInt(2) ** BigInt(130),
+            -(BigInt(2) ** BigInt(200)),
+            BigInt(2) ** BigInt(255) - BigInt(1),
+            -(BigInt(2) ** BigInt(255)),
+        ];
+        for (const value of values) {
+            expect(BN.decimal(toWords(value, 256)).toString()).toBe(`${value}`);
+        }
+    });
+
+    test(`toString for Decimal256 vector values`, () => {
+        const type = new Arrow.Decimal(0, 76, 256);
+        const values = [BigInt(1234), BigInt(-1234), BigInt(2) ** BigInt(130)];
+        const data = new Uint32Array(values.length * 8);
+        for (const [i, value] of values.entries()) {
+            data.set(toWords(value, 256), i * 8);
+        }
+        const vector = Arrow.makeVector({ type, data });
+        expect([...vector].map((x) => `${x}`)).toEqual(values.map((x) => `${x}`));
+    });
+
+    test(`valueOf for 256-bit decimals`, () => {
+        const decimal = (value: bigint) => BN.decimal(toWords(value, 256));
+        expect(decimal(BigInt(1234)).valueOf()).toBe(1234);
+        expect(decimal(BigInt(-1234)).valueOf()).toBe(-1234);
+        expect(decimal(BigInt(1999)).valueOf(2)).toBe(19.99);
+        expect(decimal(BigInt(-1999)).valueOf(2)).toBe(-19.99);
+        expect(decimal(BigInt(-5)).valueOf(3)).toBe(-0.005);
+        expect(decimal(BigInt(2) ** BigInt(130)).valueOf(30)).toBeCloseTo(1361129467.68);
+        expect(() => decimal(BigInt(2) ** BigInt(130)).valueOf()).toThrow('1361129467683753853853498429727072845824');
+    });
+
+    test(`negative 64-bit decimals`, () => {
+        const d = BN.decimal(toWords(BigInt(-1), 64));
+        expect(d.toString()).toBe('-1');
+        expect(d.toString(2)).toBe('-0.01');
+        expect(d.valueOf()).toBe(-1);
+        expect(d.valueOf(10)).toBe(-1e-10);
+
+        const type = new Arrow.Decimal(2, 18, 64);
+        const vector = Arrow.makeVector({ type, data: toWords(BigInt(-1999), 64) });
+        expect(`${vector.get(0)}`).toBe('-1999');
+        expect(vector.get(0)!.toString(type.scale)).toBe('-19.99');
+        expect(vector.get(0)!.valueOf(type.scale)).toBe(-19.99);
+    });
+
+    test(`toString with a scale`, () => {
+        const decimal = (value: bigint, bitWidth = 128) => BN.decimal(toWords(value, bitWidth));
+        expect(decimal(BigInt(1999)).toString(2)).toBe('19.99');
+        expect(decimal(BigInt(-1999)).toString(2)).toBe('-19.99');
+        expect(decimal(BigInt(100)).toString(2)).toBe('1.00');
+        expect(decimal(BigInt(5)).toString(3)).toBe('0.005');
+        expect(decimal(BigInt(-5)).toString(3)).toBe('-0.005');
+        expect(decimal(BigInt(0)).toString(5)).toBe('0.00000');
+        expect(decimal(BigInt(1234)).toString(0)).toBe('1234');
+        expect(decimal(BigInt(123)).toString(-2)).toBe('12300');
+        expect(decimal(BigInt(0)).toString(-2)).toBe('0');
+        expect(decimal(BigInt(-1999)).toString(Number.NaN)).toBe('-1999');
+        expect(decimal(BigInt('123456789012345678901234567890')).toString(10)).toBe('12345678901234567890.1234567890');
+        expect(decimal(-(BigInt(2) ** BigInt(255)), 256).toString(76))
+            .toBe('-5.7896044618658097711785492504343953926634992332820282019728792003956564819968');
+    });
+
+    test(`bigNumToBigInt`, () => {
+        expect(bigNumToBigInt(BN.decimal(toWords(BigInt(-2), 128)))).toBe(BigInt(-2));
+        expect(bigNumToBigInt(BN.decimal(toWords(BigInt(2) ** BigInt(130), 256)))).toBe(BigInt(2) ** BigInt(130));
+        expect(bigNumToBigInt(new BN(new Uint32Array([0x11111111, 0x11111111, 0x11111111]), false)))
+            .toBe(BigInt('5281877500950955839569596689'));
+        expect(new BN(toWords(BigInt(-2), 128), true)[Symbol.toPrimitive]('default')).toBe(BigInt(-2));
+        // 64-bit value at an offset that is not 8-byte aligned
+        const unaligned = new Uint32Array([0, 5, 33]).subarray(1);
+        expect(bigNumToBigInt(new BN(unaligned, false))).toBe(BigInt(141733920773));
     });
 });

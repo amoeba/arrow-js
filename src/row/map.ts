@@ -65,8 +65,10 @@ export class MapRow<K extends DataType = any, V extends DataType = any> {
     }
 
     public toString() {
+        const keyType = this[kKeys].type;
+        const valType = this[kVals].type;
         return `{${[...this].map(([key, val]) =>
-            `${valueToString(key)}: ${valueToString(val)}`
+            `${valueToString(key, keyType)}: ${valueToString(val, valType)}`
         ).join(', ')
             }}`;
     }

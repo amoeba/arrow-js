@@ -38,7 +38,7 @@ function BigNum(this: any, x: any, ...xs: any) {
 BigNum.prototype[isArrowBigNumSymbol] = true;
 BigNum.prototype.toJSON = function <T extends BN<BigNumArray>>(this: T) { return `"${bigNumToString(this)}"`; };
 BigNum.prototype.valueOf = function <T extends BN<BigNumArray>>(this: T, scale?: number) { return bigNumToNumber(this, scale); };
-BigNum.prototype.toString = function <T extends BN<BigNumArray>>(this: T) { return bigNumToString(this); };
+BigNum.prototype.toString = function <T extends BN<BigNumArray>>(this: T, scale?: number) { return bigNumToString(this, scale); };
 BigNum.prototype[Symbol.toPrimitive] = function <T extends BN<BigNumArray>>(this: T, hint: 'string' | 'number' | 'default' = 'default') {
     switch (hint) {
         case 'number': return bigNumToNumber(this);
@@ -69,32 +69,14 @@ Object.assign(SignedBigNum.prototype, BigNum.prototype, { 'constructor': SignedB
 Object.assign(UnsignedBigNum.prototype, BigNum.prototype, { 'constructor': UnsignedBigNum, 'signed': false, 'TypedArray': Uint32Array, 'BigIntArray': BigUint64Array });
 Object.assign(DecimalBigNum.prototype, BigNum.prototype, { 'constructor': DecimalBigNum, 'signed': true, 'TypedArray': Uint32Array, 'BigIntArray': BigUint64Array });
 
-//FOR ES2020 COMPATIBILITY
-const TWO_TO_THE_64 = BigInt(4294967296) * BigInt(4294967296); // 2^64 = 0x10000000000000000n
-const TWO_TO_THE_64_MINUS_1 = TWO_TO_THE_64 - BigInt(1); // (2^32 * 2^32) - 1 = 0xFFFFFFFFFFFFFFFFn
-
 /** @ignore */
 export function bigNumToNumber<T extends BN<BigNumArray>>(bn: T, scale?: number) {
-    const { buffer, byteOffset, byteLength, 'signed': signed } = bn;
-    const words = new BigUint64Array(buffer, byteOffset, byteLength / 8);
-    const negative = signed && words.at(-1)! & (BigInt(1) << BigInt(63));
-    let number = BigInt(0);
-    let i = 0;
-    if (negative) {
-        for (const word of words) {
-            number |= (word ^ TWO_TO_THE_64_MINUS_1) * (BigInt(1) << BigInt(64 * i++));
-        }
-        number *= BigInt(-1);
-        number -= BigInt(1);
-    } else {
-        for (const word of words) {
-            number |= word * (BigInt(1) << BigInt(64 * i++));
-        }
-    }
+    const number = bigNumToBigInt(bn);
     if (typeof scale === 'number' && scale > 0) {
+        const negative = number < BigInt(0);
         const denominator = BigInt('1'.padEnd(scale + 1, '0'));
         const quotient = number / denominator;
-        const remainder = negative? -(number % denominator) : number % denominator;
+        const remainder = negative ? -(number % denominator) : number % denominator;
         const integerPart = bigIntToNumber(quotient);
         const fractionPart = `${remainder}`.padStart(scale, '0');
         const sign = negative && integerPart === 0 ? '-' : '';
@@ -104,68 +86,39 @@ export function bigNumToNumber<T extends BN<BigNumArray>>(bn: T, scale?: number)
 }
 
 /** @ignore */
-export function bigNumToString<T extends BN<BigNumArray>>(a: T): string {
-    // use BigInt native implementation
-    if (a.byteLength === 8) {
-        const bigIntArray = new a['BigIntArray'](a.buffer, a.byteOffset, 1);
-        return `${bigIntArray[0]}`;
+export function bigNumToString<T extends BN<BigNumArray>>(a: T, scale?: number): string {
+    const number = bigNumToBigInt(a);
+    if (typeof scale === 'number' && scale > 0) {
+        const negative = number < BigInt(0);
+        // Pad so there is always at least one digit before the decimal point
+        const digits = `${negative ? -number : number}`.padStart(scale + 1, '0');
+        return `${negative ? '-' : ''}${digits.slice(0, -scale)}.${digits.slice(-scale)}`;
     }
-
-    // unsigned numbers
-    if (!a['signed']) {
-        return unsignedBigNumToString(a);
+    // A negative scale multiplies the unscaled value by 10^-scale
+    if (typeof scale === 'number' && scale < 0) {
+        return number === BigInt(0) ? '0' : `${number}${'0'.repeat(-scale)}`;
     }
-
-    let array = new Uint16Array(a.buffer, a.byteOffset, a.byteLength / 2);
-
-    // detect positive numbers
-    const highOrderWord = new Int16Array([array.at(-1)!])[0];
-    if (highOrderWord >= 0) {
-        return unsignedBigNumToString(a);
-    }
-
-    // flip the negative value
-    array = array.slice();
-    let carry = 1;
-    for (let i = 0; i < array.length; i++) {
-        const elem = array[i];
-        const updated = ~elem + carry;
-        array[i] = updated;
-        carry &= elem === 0 ? 1 : 0;
-    }
-
-    const negated = unsignedBigNumToString(<any>array);
-    return `-${negated}`;
+    return `${number}`;
 }
 
 /** @ignore */
 export function bigNumToBigInt<T extends BN<BigNumArray>>(a: T): bigint {
-    if (a.byteLength === 8) {
-        const bigIntArray = new a['BigIntArray'](a.buffer, a.byteOffset, 1);
-        return bigIntArray[0];
-    } else {
-        return <any>bigNumToString(a);
+    const { buffer, byteOffset, byteLength, 'signed': signed } = a;
+    // use BigInt native implementation
+    if (byteLength === 8 && byteOffset % 8 === 0) {
+        return new (signed ? BigInt64Array : BigUint64Array)(buffer, byteOffset, 1)[0];
     }
-}
-
-/** @ignore */
-function unsignedBigNumToString<T extends BN<BigNumArray>>(a: T) {
-    let digits = '';
-    const base64 = new Uint32Array(2);
-    let base32 = new Uint16Array(a.buffer, a.byteOffset, a.byteLength / 2);
-    const checks = new Uint32Array((base32 = new Uint16Array(base32).reverse()).buffer);
-    let i = -1;
-    const n = base32.length - 1;
-    do {
-        for (base64[0] = base32[i = 0]; i < n;) {
-            base32[i++] = base64[1] = base64[0] / 10;
-            base64[0] = ((base64[0] - base64[1] * 10) << 16) + base32[i];
-        }
-        base32[i] = base64[1] = base64[0] / 10;
-        base64[0] = base64[0] - base64[1] * 10;
-        digits = `${base64[0]}${digits}`;
-    } while (checks[0] || checks[1] || checks[2] || checks[3]);
-    return digits ?? `0`;
+    // Accumulate little-endian words from most to least significant. Use
+    // 32-bit words when aligned, otherwise fall back to 16-bit words.
+    const words = byteOffset % 4 === 0 && byteLength % 4 === 0
+        ? new Uint32Array(buffer, byteOffset, byteLength / 4)
+        : new Uint16Array(buffer, byteOffset, byteLength / 2);
+    const wordBits = BigInt(words.BYTES_PER_ELEMENT * 8);
+    let number = BigInt(0);
+    for (let i = words.length; --i >= 0;) {
+        number = (number << wordBits) | BigInt(words[i]);
+    }
+    return signed ? BigInt.asIntN(byteLength * 8, number) : number;
 }
 
 /** @ignore */
@@ -224,9 +177,11 @@ export interface BN<T extends BigNumArray> extends TypedArrayLike<T> {
     'Uint8ClampedArray';
 
     /**
-     * Convert the bytes to their (positive) decimal representation for printing
+     * Convert the bytes to their base-10 representation for printing. If a
+     * scale is provided, the value is formatted exactly as a decimal with
+     * that many fractional digits (e.g. 1999 with scale 2 is "19.99").
      */
-    toString(): string;
+    toString(scale?: number): string;
     /**
      * Down-convert the bytes to a 53-bit precision integer. Invoked by JS for
      * arithmetic operators, like `+`. Easy (and unsafe) way to convert BN to

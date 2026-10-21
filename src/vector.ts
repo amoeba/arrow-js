@@ -17,6 +17,7 @@
 
 import { Type } from './enum.js';
 import { clampRange, wrapIndex } from './util/vector.js';
+import { valueToString } from './util/pretty.js';
 import { DataType, strideForType } from './type.js';
 import { Data, makeData, DataProps } from './data.js';
 import { BigIntArray, TypedArray, TypedArrayDataType } from './interfaces.js';
@@ -288,7 +289,11 @@ export class Vector<T extends DataType = any> {
      * @returns A string representation of the Vector.
      */
     public toString() {
-        return `[${[...this].join(',')}]`;
+        const { type } = this;
+        const values = DataType.isDecimal(type)
+            ? [...this].map((x) => x === null ? x : valueToString(x, type))
+            : [...this];
+        return `[${values.join(',')}]`;
     }
 
     /**

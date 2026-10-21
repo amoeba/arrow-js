@@ -392,7 +392,13 @@ export class Decimal extends DataType<Type.Decimal> {
         public readonly bitWidth: number = 128) {
         super(Type.Decimal);
     }
-    public toString() { return `Decimal[${this.precision}e${this.scale > 0 ? `+` : ``}${this.scale}]`; }
+    /**
+     * Returns `Decimal<bitWidth>[<scale>, <precision>]`, e.g. `Decimal128[2, 5]`.
+     * Parameters are listed in the same order as the constructor arguments,
+     * which is the reverse of the `decimal128(precision, scale)` order used by
+     * Arrow C++ and PyArrow.
+     */
+    public toString() { return `Decimal${this.bitWidth}[${this.scale}, ${this.precision}]`; }
     protected static [Symbol.toStringTag] = ((proto: Decimal) => {
         (<any>proto).scale = null;
         (<any>proto).precision = null;
