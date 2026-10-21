@@ -36,17 +36,19 @@ function BigNum(this: any, x: any, ...xs: any) {
 }
 
 BigNum.prototype[isArrowBigNumSymbol] = true;
-BigNum.prototype.toJSON = function <T extends BN<BigNumArray>>(this: T) { return `"${bigNumToString(this)}"`; };
-BigNum.prototype.valueOf = function <T extends BN<BigNumArray>>(this: T, scale?: number) { return bigNumToNumber(this, scale); };
-BigNum.prototype.toString = function <T extends BN<BigNumArray>>(this: T, scale?: number) { return bigNumToString(this, scale); };
+BigNum.prototype.toJSON = function <T extends BN<BigNumArray>>(this: T) { return bigNumToString(this, this['scale']); };
+BigNum.prototype.valueOf = function <T extends BN<BigNumArray>>(this: T, scale = this['scale']) { return bigNumToNumber(this, scale); };
+BigNum.prototype.toString = function <T extends BN<BigNumArray>>(this: T, scale = this['scale']) { return bigNumToString(this, scale); };
 BigNum.prototype[Symbol.toPrimitive] = function <T extends BN<BigNumArray>>(this: T, hint: 'string' | 'number' | 'default' = 'default') {
+    const scale = this['scale'];
     switch (hint) {
-        case 'number': return bigNumToNumber(this);
-        case 'string': return bigNumToString(this);
-        case 'default': return bigNumToBigInt(this);
+        case 'number': return bigNumToNumber(this, scale);
+        case 'string': return bigNumToString(this, scale);
+        // Scaled decimals can't be represented as a bigint, so use the string
+        case 'default': return typeof scale === 'number' ? bigNumToString(this, scale) : bigNumToBigInt(this);
     }
     // @ts-ignore
-    return bigNumToString(this);
+    return bigNumToString(this, scale);
 };
 
 /** @ignore */
@@ -68,6 +70,23 @@ Object.setPrototypeOf(DecimalBigNum.prototype, Object.create(Uint32Array.prototy
 Object.assign(SignedBigNum.prototype, BigNum.prototype, { 'constructor': SignedBigNum, 'signed': true, 'TypedArray': Int32Array, 'BigIntArray': BigInt64Array });
 Object.assign(UnsignedBigNum.prototype, BigNum.prototype, { 'constructor': UnsignedBigNum, 'signed': false, 'TypedArray': Uint32Array, 'BigIntArray': BigUint64Array });
 Object.assign(DecimalBigNum.prototype, BigNum.prototype, { 'constructor': DecimalBigNum, 'signed': true, 'TypedArray': Uint32Array, 'BigIntArray': BigUint64Array });
+Object.defineProperty(DecimalBigNum.prototype, 'unscaled', {
+    get<T extends BN<BigNumArray>>(this: T) { return bigNumToBigInt(this); }
+});
+
+/** @ignore */
+const decimalPrototypesByScale = new Map<number, any>();
+
+/** @ignore */
+function decimalPrototype(scale: number) {
+    let proto = decimalPrototypesByScale.get(scale);
+    if (!proto) {
+        // One shared prototype per scale lets values carry their scale without a per-value property
+        proto = Object.create(DecimalBigNum.prototype, { 'scale': { value: scale } });
+        decimalPrototypesByScale.set(scale, proto);
+    }
+    return proto;
+}
 
 /** @ignore */
 export function bigNumToNumber<T extends BN<BigNumArray>>(bn: T, scale?: number) {
@@ -150,7 +169,10 @@ export class BN<T extends BigNumArray> {
         return new (<any>UnsignedBigNum)(num) as (T & BN<T>);
     }
     /** @nocollapse */
-    public static decimal<T extends UintArray>(num: T): (T & BN<T>) {
+    public static decimal<T extends UintArray>(num: T, scale?: number): (T & BN<T>) {
+        if (typeof scale === 'number') {
+            return Object.setPrototypeOf(toArrayBufferView(Uint32Array, num), decimalPrototype(scale)) as (T & BN<T>);
+        }
         return new (<any>DecimalBigNum)(num) as (T & BN<T>);
     }
     constructor(num: T, isSigned?: boolean) {
@@ -164,6 +186,15 @@ export interface BN<T extends BigNumArray> extends TypedArrayLike<T> {
     new <T extends ArrayBufferViewInput>(buffer: T, signed?: boolean): T;
 
     readonly signed: boolean;
+    /**
+     * The decimal scale used by toString(), valueOf(), and toJSON() when no
+     * scale is passed. Set on decimal values read from a vector.
+     */
+    readonly scale?: number;
+    /**
+     * The stored integer without the scale applied. Only defined for decimals.
+     */
+    readonly unscaled?: bigint;
     readonly TypedArray: TypedArrayConstructor<TypedArray>;
     readonly BigIntArray: BigIntArrayConstructor<BigIntArray>;
 
@@ -177,20 +208,20 @@ export interface BN<T extends BigNumArray> extends TypedArrayLike<T> {
     'Uint8ClampedArray';
 
     /**
-     * Convert the bytes to their base-10 representation for printing. If a
-     * scale is provided, the value is formatted exactly as a decimal with
-     * that many fractional digits (e.g. 1999 with scale 2 is "19.99").
+     * Convert the bytes to their base-10 representation for printing. The
+     * value is formatted exactly as a decimal with `scale` fractional digits
+     * (e.g. 1999 with scale 2 is "19.99"). Defaults to this value's scale.
      */
     toString(scale?: number): string;
     /**
-     * Down-convert the bytes to a 53-bit precision integer. Invoked by JS for
-     * arithmetic operators, like `+`. Easy (and unsafe) way to convert BN to
-     * number via `+bn_inst`
+     * Down-convert the bytes to a 53-bit precision number, dividing by
+     * 10^scale. Defaults to this value's scale. Easy (and unsafe) way to
+     * convert BN to number via `+bn_inst`
      */
     valueOf(scale?: number): number;
     /**
-     * Return the JSON representation of the bytes. Must be wrapped in double-quotes,
-     * so it's compatible with JSON.stringify().
+     * Return the base-10 string representation of the value, using this
+     * value's scale, for JSON.stringify().
      */
     toJSON(): string;
     [Symbol.toPrimitive](hint?: any): number | string | bigint;

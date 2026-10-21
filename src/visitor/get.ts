@@ -259,7 +259,7 @@ const getTime = <T extends Time>(data: Data<T>, index: number): T['TValue'] => {
 };
 
 /** @ignore */
-const getDecimal = <T extends Decimal>({ values, stride }: Data<T>, index: number): T['TValue'] => BN.decimal(values.subarray(stride * index, stride * (index + 1)));
+const getDecimal = <T extends Decimal>({ type, values, stride }: Data<T>, index: number): T['TValue'] => BN.decimal(values.subarray(stride * index, stride * (index + 1)), type.scale);
 
 /** @ignore */
 const getList = <T extends List | LargeList>(data: Data<T>, index: number): T['TValue'] => {

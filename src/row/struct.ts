@@ -56,9 +56,8 @@ export class StructRow<T extends TypeMap = any> {
     }
 
     public toString() {
-        const fields = this[kParent].type.children;
-        return `{${[...this].map(([key, val], i) =>
-            `${valueToString(key)}: ${valueToString(val, fields[i].type)}`
+        return `{${[...this].map(([key, val]) =>
+            `${valueToString(key)}: ${valueToString(val)}`
         ).join(', ')
             }}`;
     }

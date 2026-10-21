@@ -16,7 +16,7 @@
 // under the License.
 
 import {
-    Decimal, Field, Map_, Struct, Utf8, makeBuilder, makeTable, makeVector, tableFromIPC, tableToIPC, vectorFromArray
+    Decimal, Field, List, Map_, Struct, Utf8, makeBuilder, makeTable, makeVector, tableFromIPC, tableToIPC, vectorFromArray
 } from 'apache-arrow';
 
 /** Little-endian two's complement words for each value, `bitWidth` bits per value. */
@@ -40,9 +40,51 @@ const decimalVector = (values: bigint[], scale: number, bitWidth = 128) =>
     makeVector({ type: new Decimal(scale, maxPrecision[bitWidth], bitWidth), data: toWords(values, bitWidth) });
 
 describe(`DecimalVector`, () => {
-    test(`values are unscaled`, () => {
-        const vector = decimalVector([BigInt(1999)], 2);
-        expect(`${vector.get(0)}`).toBe('1999');
+    describe(`get() values carry their scale`, () => {
+        const value = decimalVector([BigInt(1999)], 2).get(0)!;
+
+        test(`string and number conversions apply the scale`, () => {
+            expect(`${value}`).toBe('19.99');
+            expect(String(value)).toBe('19.99');
+            expect(value.toString()).toBe('19.99');
+            expect(value + '').toBe('19.99');
+            expect(Number(value)).toBe(19.99);
+            expect(+value).toBe(19.99);
+            expect(value.valueOf()).toBe(19.99);
+            expect(JSON.stringify(value)).toBe('"19.99"');
+            expect(JSON.stringify({ value })).toBe('{"value":"19.99"}');
+        });
+
+        test(`the unscaled value is still available`, () => {
+            expect(value.scale).toBe(2);
+            expect(value.unscaled).toBe(BigInt(1999));
+            expect(value.toString(0)).toBe('1999');
+            expect(value.valueOf(0)).toBe(1999);
+        });
+
+        test(`values are still zero-copy Uint32Array views`, () => {
+            expect(value).toBeInstanceOf(Uint32Array);
+            expect([...value]).toEqual([1999, 0, 0, 0]);
+        });
+
+        test(`negative, scale 0, and 256-bit values`, () => {
+            expect(`${decimalVector([BigInt(-5)], 2).get(0)}`).toBe('-0.05');
+            expect(Number(decimalVector([BigInt(-5)], 2).get(0))).toBe(-0.05);
+            expect(`${decimalVector([BigInt(1999)], 0).get(0)}`).toBe('1999');
+            expect(decimalVector([BigInt(1999)], 0).get(0)! + '').toBe('1999');
+            const big = decimalVector([-(BigInt(2) ** BigInt(200))], 10, 256).get(0)!;
+            expect(`${big}`).toBe('-160693804425899027554196209234116260252220299378279.2835301376');
+            expect(big.unscaled).toBe(-(BigInt(2) ** BigInt(200)));
+        });
+
+        test(`values can be appended to a column with the same type`, () => {
+            const type = new Decimal(2, 5);
+            const builder = makeBuilder({ type });
+            builder.append(value);
+            const copy = builder.finish().toVector();
+            expect(`${copy.get(0)}`).toBe('19.99');
+            expect(copy.indexOf(value)).toBe(0);
+        });
     });
 
     test(`Vector.toString applies the scale`, () => {
@@ -74,6 +116,14 @@ describe(`DecimalVector`, () => {
             qty: new Int32Array([3, 4]),
         });
         expect(table.toString()).toBe('[\n  {"name": "apple", "price": 19.99, "qty": 3},\n  {"name": "pear", "price": 2.50, "qty": 4}\n]');
+    });
+
+    test(`Table.toString applies the scale to nested decimals`, () => {
+        const type = new List(new Field('item', new Decimal(2, 5)));
+        const builder = makeBuilder({ type });
+        builder.append([toWords([BigInt(1999)], 128), toWords([BigInt(-5)], 128)]);
+        const table = makeTable({ prices: builder.finish().toVector() });
+        expect(table.toString()).toBe('[\n  {"prices": ["19.99","-0.05"]}\n]');
     });
 
     test(`Table.toString prints null decimals`, () => {
@@ -118,7 +168,7 @@ describe(`DecimalVector`, () => {
                     expect(type.bitWidth).toBe(bitWidth);
                     expect(type.scale).toBe(2);
                     expect(type.precision).toBe(maxPrecision[bitWidth]);
-                    expect([...result.getChild('d')!].map(String)).toEqual(values.map(String));
+                    expect([...result.getChild('d')!].map((x) => x!.unscaled)).toEqual(values);
                 });
             }
         }
