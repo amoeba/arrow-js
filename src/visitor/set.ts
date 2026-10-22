@@ -20,7 +20,7 @@ import { Field } from '../schema.js';
 import { Vector } from '../vector.js';
 import { Visitor } from '../visitor.js';
 import { bigIntToNumber } from '../util/bigint.js';
-import { bigIntToWords, decimalToUnscaledBigInt } from '../util/bn.js';
+import { bigIntToWords, bigNumToBigInt, decimalToUnscaledBigInt, rescaleUnscaled } from '../util/bn.js';
 import { encodeUtf8 } from '../util/utf8.js';
 import { TypeToDataType } from '../interfaces.js';
 import { float64ToUint16 } from '../util/math.js';
@@ -264,12 +264,21 @@ export const setTime = <T extends Time>(data: Data<T>, index: number, value: T['
 
 /** @ignore */
 export const toDecimalWords = ({ scale, precision, bitWidth }: Decimal, value: any): Uint32Array => {
+    let unscaled: bigint;
     if (ArrayBuffer.isView(value)) {
-        return value as Uint32Array;
+        // Values read from a Decimal vector carry their scale. If it or the bit width differs,
+        // rescale the stored integer so the value keeps its meaning. Otherwise copy the words.
+        const valueScale = (value as any)['scale'];
+        if (typeof valueScale !== 'number' || (valueScale === scale && value.byteLength === bitWidth / 8)) {
+            return value as Uint32Array;
+        }
+        unscaled = rescaleUnscaled(bigNumToBigInt(value as any), valueScale, scale, precision, value);
+    } else {
+        // Numbers, bigints, and decimal strings mean the decimal value, so apply the scale
+        unscaled = decimalToUnscaledBigInt(value, scale, precision);
     }
-    // Numbers, bigints, and decimal strings mean the decimal value, so apply the scale
     const words = new Uint32Array(bitWidth / 32);
-    bigIntToWords(decimalToUnscaledBigInt(value, scale, precision), words);
+    bigIntToWords(unscaled, words);
     return words;
 };
 

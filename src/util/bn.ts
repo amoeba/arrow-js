@@ -148,7 +148,35 @@ export function bigNumToBigInt<T extends BN<BigNumArray>>(a: T): bigint {
 const decimalString = /^([+-]?)(\d*)(?:\.(\d*))?$/;
 
 /** @ignore */
-const powerOfTen = (exponent: number) => BigInt(`1${'0'.repeat(exponent)}`);
+const powersOfTen: bigint[] = [];
+
+/** @ignore */
+// Cache powers of ten as they're used, rather than shipping a precomputed table
+const powerOfTen = (exponent: number) => powersOfTen[exponent] ?? (powersOfTen[exponent] = BigInt(`1${'0'.repeat(exponent)}`));
+
+/**
+ * @ignore
+ * Rescale the unscaled integer of a decimal with `fromScale` to one with `toScale`,
+ * like Arrow C++'s Rescale. Throws if digits would be lost or the result exceeds the
+ * precision. `value` is only used in error messages.
+ */
+export function rescaleUnscaled(unscaled: bigint, fromScale: number, toScale: number, precision: number, value: unknown = unscaled): bigint {
+    const shift = toScale - fromScale;
+    if (shift > 0) {
+        unscaled *= powerOfTen(shift);
+    } else if (shift < 0) {
+        const divisor = powerOfTen(-shift);
+        if (unscaled % divisor !== BigInt(0)) {
+            throw new RangeError(`Cannot convert ${value} to Decimal with scale ${toScale} without losing digits`);
+        }
+        unscaled /= divisor;
+    }
+    const limit = powerOfTen(precision);
+    if (unscaled >= limit || unscaled <= -limit) {
+        throw new RangeError(`Cannot convert ${value} to Decimal with precision ${precision} and scale ${toScale}`);
+    }
+    return unscaled;
+}
 
 /**
  * @ignore
@@ -173,23 +201,8 @@ export function decimalToUnscaledBigInt(value: number | bigint | string, scale: 
         digits = BigInt(`${sign}${integer || '0'}${fraction}`);
         fractionDigits = fraction.length;
     }
-    // The value is digits * 10^-fractionDigits, so the unscaled integer is digits * 10^(scale - fractionDigits)
-    let unscaled = digits;
-    const shift = scale - fractionDigits;
-    if (shift > 0) {
-        unscaled *= powerOfTen(shift);
-    } else if (shift < 0) {
-        const divisor = powerOfTen(-shift);
-        if (digits % divisor !== BigInt(0)) {
-            throw new RangeError(`Cannot convert ${value} to Decimal with scale ${scale} without losing digits`);
-        }
-        unscaled /= divisor;
-    }
-    const limit = powerOfTen(precision);
-    if (unscaled >= limit || unscaled <= -limit) {
-        throw new RangeError(`Cannot convert ${value} to Decimal with precision ${precision} and scale ${scale}`);
-    }
-    return unscaled;
+    // The value is digits * 10^-fractionDigits, i.e. an unscaled integer with scale fractionDigits
+    return rescaleUnscaled(digits, fractionDigits, scale, precision, value);
 }
 
 /**

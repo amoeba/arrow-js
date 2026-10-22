@@ -284,6 +284,57 @@ describe(`DecimalVector`, () => {
         }
     });
 
+    describe(`copying values between columns`, () => {
+        /** A value read from a column with the given scale, precision, and bit width. */
+        const valueFrom = (value: string, scale: number, precision = 9, bitWidth = 128) =>
+            vectorFromArray([value], new Decimal(scale, precision, bitWidth)).get(0)!;
+        const copyTo = (type: Decimal | Dictionary, ...values: any[]) => {
+            const builder = makeBuilder({ type, nullValues: [null] });
+            for (const value of values) {
+                builder.append(value);
+            }
+            return [...builder.finish().toVector()].map(String);
+        };
+
+        test(`values keep their meaning in a column with a larger scale`, () => {
+            expect(copyTo(new Decimal(3, 9), valueFrom('19.99', 2))).toEqual(['19.990']);
+            expect(copyTo(new Decimal(0, 9), valueFrom('12300', -2))).toEqual(['12300']);
+        });
+
+        test(`values keep their meaning in a column with a smaller scale`, () => {
+            expect(copyTo(new Decimal(2, 9), valueFrom('1.990', 3))).toEqual(['1.99']);
+        });
+
+        test(`values that would lose digits are rejected`, () => {
+            const builder = makeBuilder({ type: new Decimal(2, 9) });
+            expect(() => builder.append(valueFrom('1.999', 3))).toThrow(RangeError);
+            expect(builder).toHaveLength(0);
+            const vector = decimalVector([BigInt(100)], 2);
+            expect(() => vector.set(0, valueFrom('1.999', 3))).toThrow(RangeError);
+            expect(`${vector.get(0)}`).toBe('1.00');
+        });
+
+        test(`values that exceed the destination precision are rejected`, () => {
+            expect(() => copyTo(new Decimal(3, 5), valueFrom('123.45', 2))).toThrow(RangeError);
+            expect(copyTo(new Decimal(3, 6), valueFrom('123.45', 2))).toEqual(['123.450']);
+        });
+
+        test(`values keep their meaning in a column with a different bit width`, () => {
+            expect(copyTo(new Decimal(0, 38, 128), valueFrom('-5', 0, 9, 32))).toEqual(['-5']);
+            expect(copyTo(new Decimal(2, 9, 32), valueFrom('-19.99', 2, 38, 256))).toEqual(['-19.99']);
+            expect(() => copyTo(new Decimal(0, 9, 32), valueFrom('9999999999', 0, 18, 64))).toThrow(RangeError);
+        });
+
+        test(`values copy unchanged into a column with the same type`, () => {
+            expect(copyTo(new Decimal(2, 9), valueFrom('19.99', 2), valueFrom('-0.05', 2))).toEqual(['19.99', '-0.05']);
+        });
+
+        test(`dictionary-encoded columns rescale too`, () => {
+            const type = new Dictionary(new Decimal(3, 9), new Int32());
+            expect(copyTo(type, valueFrom('19.99', 2), '19.99')).toEqual(['19.990', '19.990']);
+        });
+    });
+
     test(`MapRow property lookup uses decimal keys`, () => {
         for (const bitWidth of [32, 128]) {
             const type = new Map_(new Field('entries', new Struct([
