@@ -348,4 +348,37 @@ describe(`DecimalVector`, () => {
             expect(row['19.99']).toBe('sale');
         }
     });
+
+    describe(`examples from bug reports`, () => {
+        // https://github.com/apache/arrow-js/issues/77
+        test(`jheer: encoding with vectorFromArray`, () => {
+            const vector = vectorFromArray([1, 12, 34], new Decimal(3, 18));
+            expect([...vector].map(String)).toEqual(['1.000', '12.000', '34.000']);
+        });
+
+        // https://github.com/apache/arrow-js/issues/77, decoding bytes written by
+        // pa.array([1, 12, 34], type=pa.decimal128(18, 3)) and pa.ipc.new_stream
+        test(`jheer: decoding a pyarrow decimal128(18, 3) stream`, () => {
+            const hex = 'FFFFFFFF780000001000000000000A000C000600050008000A000000000104000C000000080008000000040008000000040000000100000014000000100014000800060007000C00000010001000000000000107100000001C0000000400000000000000010000006400000008000C0004000800080000001200000003000000FFFFFFFF8800000014000000000000000C0016000600050008000C000C0000000003040018000000300000000000000000000A0018000C00040008000A0000003C00000010000000030000000000000000000000020000000000000000000000000000000000000000000000000000003000000000000000000000000100000003000000000000000000000000000000E8030000000000000000000000000000E02E0000000000000000000000000000D0840000000000000000000000000000FFFFFFFF00000000';
+            const bytes = Uint8Array.from(hex.match(/.{1,2}/g)!.map((s) => Number.parseInt(s, 16)));
+            const vec = tableFromIPC(bytes).getChild('d')!;
+            expect([...vec.get(0)!]).toEqual([1000, 0, 0, 0]);
+            expect(`${vec.get(0)}`).toBe('1.000');
+            expect(Number(vec.get(0))).toBe(1);
+            expect(+vec.get(0)!).toBe(1);
+            expect([...vec].map(Number)).toEqual([1, 12, 34]);
+        });
+
+        // https://github.com/apache/arrow-js/pull/341#issuecomment-4663543386
+        test(`ianmcook: Table.toString with a decimal128(5, 2) column`, () => {
+            const type = new Decimal(2, 5, 128); // scale, precision, bitWidth
+            // Unscaled integer 1999, representing 19.99 with scale 2.
+            const price = makeVector({ type, data: new Uint32Array([1999, 0, 0, 0]) });
+            const table = makeTable({ price: price });
+            expect(String(price.type)).toBe('Decimal128[2, 5]');
+            expect(String(price.get(0))).toBe('19.99');
+            expect(price.get(0)!.valueOf(type.scale)).toBe(19.99);
+            expect(table.toString()).toBe('[\n  {"price": 19.99}\n]');
+        });
+    });
 });
