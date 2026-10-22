@@ -452,7 +452,13 @@ SetVisitor.prototype.visitTimeSecond = wrapSet(setTimeSecond);
 SetVisitor.prototype.visitTimeMillisecond = wrapSet(setTimeMillisecond);
 SetVisitor.prototype.visitTimeMicrosecond = wrapSet(setTimeMicrosecond);
 SetVisitor.prototype.visitTimeNanosecond = wrapSet(setTimeNanosecond);
-SetVisitor.prototype.visitDecimal = wrapSet(setDecimal);
+SetVisitor.prototype.visitDecimal = <T extends Decimal>(data: Data<T>, index: number, value: T['TValue'] | null) => {
+    // Convert before updating validity, so a rejected value leaves the slot unchanged
+    const words = value == null ? null : toDecimalWords(data.type, value);
+    if (data.setValid(index, words != null)) {
+        setDecimal(data, index, words!);
+    }
+};
 SetVisitor.prototype.visitList = wrapSet(setList);
 SetVisitor.prototype.visitLargeList = wrapSet(setList);
 SetVisitor.prototype.visitStruct = wrapSet(setStruct);

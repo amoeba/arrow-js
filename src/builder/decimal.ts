@@ -17,9 +17,17 @@
 
 import { Decimal } from '../type.js';
 import { FixedWidthBuilder } from '../builder.js';
-import { setDecimal } from '../visitor/set.js';
+import { setDecimal, toDecimalWords } from '../visitor/set.js';
 
 /** @ignore */
-export class DecimalBuilder<TNull = any> extends FixedWidthBuilder<Decimal, TNull> { }
+export class DecimalBuilder<TNull = any> extends FixedWidthBuilder<Decimal, TNull> {
+    public set(index: number, value: Decimal['TValue'] | TNull) {
+        // Convert before updating validity, so a rejected value doesn't add a row
+        if (this.isValid(value)) {
+            value = toDecimalWords(this.type, value);
+        }
+        return super.set(index, value);
+    }
+}
 
 (DecimalBuilder.prototype as any)._setValue = setDecimal;

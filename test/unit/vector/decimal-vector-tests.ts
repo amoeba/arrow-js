@@ -236,6 +236,33 @@ describe(`DecimalVector`, () => {
     });
 
     describe(`writes`, () => {
+        test(`a rejected set() leaves the slot unchanged`, () => {
+            const vector = decimalVector([BigInt(100), BigInt(200)], 2);
+            vector.set(0, null);
+            expect(() => vector.set(0, '1.234' as any)).toThrow(RangeError);
+            expect(vector.get(0)).toBeNull();
+            expect(() => vector.set(1, '1.234' as any)).toThrow(RangeError);
+            expect(`${vector.get(1)}`).toBe('2.00');
+        });
+
+        test(`a rejected append() does not add a row`, () => {
+            const builder = makeBuilder({ type: new Decimal(2, 5), nullValues: [null] });
+            builder.append('1.00');
+            expect(() => builder.append('1.234')).toThrow(RangeError);
+            expect(builder).toHaveLength(1);
+            builder.append(null);
+            expect([...builder.finish().toVector()].map((x) => x === null ? x : `${x}`)).toEqual(['1.00', null]);
+        });
+
+        test(`a rejected append() does not add a dictionary-encoded row`, () => {
+            const builder = makeBuilder({ type: new Dictionary(new Decimal(2, 5), new Int32()), nullValues: [null] });
+            builder.append('1.00');
+            expect(() => builder.append('1.234')).toThrow(RangeError);
+            expect(builder).toHaveLength(1);
+            builder.append(null);
+            expect([...builder.finish().toVector()].map((x) => x === null ? x : `${x}`)).toEqual(['1.00', null]);
+        });
+
         test(`set() rejects negative indices`, () => {
             const vector = makeVector({ type: new Decimal(0, 9, 32), data: new Uint32Array([1, 2]) });
             expect(() => vector.set(-2, 3 as any)).toThrow(RangeError);

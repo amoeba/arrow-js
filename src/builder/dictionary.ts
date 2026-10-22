@@ -62,6 +62,13 @@ export class DictionaryBuilder<T extends Dictionary, TNull = any> extends Builde
         this.length = indices.length;
         return valid;
     }
+    public set(index: number, value: T['TValue'] | TNull) {
+        // Convert decimals before updating validity, so a rejected value doesn't add a row
+        if (DataType.isDecimal(this.type.dictionary) && this.isValid(value)) {
+            value = toDecimalWords(this.type.dictionary, value) as T['TValue'];
+        }
+        return super.set(index, value);
+    }
     public setValue(index: number, value: T['TValue']) {
         // Key decimals on their stored words, so equal values share an entry however they were written
         if (DataType.isDecimal(this.type.dictionary)) {
