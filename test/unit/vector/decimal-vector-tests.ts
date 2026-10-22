@@ -16,7 +16,7 @@
 // under the License.
 
 import {
-    Decimal, Field, List, Map_, Struct, Utf8, makeBuilder, makeTable, makeVector, tableFromIPC, tableToIPC, vectorFromArray
+    Decimal, Dictionary, Field, Int32, List, Map_, Struct, Utf8, makeBuilder, makeTable, makeVector, tableFromIPC, tableToIPC, vectorFromArray
 } from 'apache-arrow';
 
 /** Little-endian two's complement words for each value, `bitWidth` bits per value. */
@@ -241,6 +241,20 @@ describe(`DecimalVector`, () => {
             expect(() => vector.set(-2, 3 as any)).toThrow(RangeError);
             expect([...vector].map(String)).toEqual(['1', '2']);
         });
+    });
+
+    test(`dictionary-encoded decimals key on the stored value`, () => {
+        for (const bitWidth of [32, 128]) {
+            const builder = makeBuilder({ type: new Dictionary(new Decimal(2, 9, bitWidth), new Int32()) });
+            const raw = new Uint32Array(bitWidth / 32);
+            raw[0] = 100;
+            for (const value of [raw, 100, '1.5', '1.50', BigInt(100)]) {
+                builder.append(value);
+            }
+            const vector = builder.finish().toVector();
+            expect([...vector].map(String)).toEqual(['1.00', '100.00', '1.50', '1.50', '100.00']);
+            expect(vector.data[0].dictionary!).toHaveLength(3);
+        }
     });
 
     test(`MapRow property lookup uses decimal keys`, () => {

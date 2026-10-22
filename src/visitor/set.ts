@@ -263,7 +263,7 @@ export const setTime = <T extends Time>(data: Data<T>, index: number, value: T['
 };
 
 /** @ignore */
-const toDecimalWords = ({ scale, precision, bitWidth }: Decimal, value: any): Uint32Array => {
+export const toDecimalWords = ({ scale, precision, bitWidth }: Decimal, value: any): Uint32Array => {
     if (ArrayBuffer.isView(value)) {
         return value as Uint32Array;
     }

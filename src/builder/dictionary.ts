@@ -20,6 +20,7 @@ import { IntBuilder } from './int.js';
 import { Dictionary, DataType } from '../type.js';
 import { Builder, BuilderOptions } from '../builder.js';
 import { makeBuilder } from '../factories.js';
+import { toDecimalWords } from '../visitor/set.js';
 
 type DictionaryHashFunction = (x: any) => string | number;
 
@@ -62,6 +63,10 @@ export class DictionaryBuilder<T extends Dictionary, TNull = any> extends Builde
         return valid;
     }
     public setValue(index: number, value: T['TValue']) {
+        // Key decimals on their stored words, so equal values share an entry however they were written
+        if (DataType.isDecimal(this.type.dictionary)) {
+            value = toDecimalWords(this.type.dictionary, value) as T['TValue'];
+        }
         const keysToIndices = this._keysToIndices;
         const key = this.valueToKey(value);
         let idx = keysToIndices[key];
